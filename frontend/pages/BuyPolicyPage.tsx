@@ -1,64 +1,83 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
-import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
+import { Button } from '../components/ui/button';
 import { useToast } from '../components/ui/use-toast';
 import { CropInsuranceService } from '../services/crop-insurance';
-import { CROP_TYPES } from '../constants';
-import { Loader2, Shield, AlertCircle } from 'lucide-react';
+import { Aptos, AptosConfig, Network } from "@aptos-labs/ts-sdk";
+import type { PolicyTemplate } from '../types/crop-insurance';
+import { NETWORK } from '../constants';
+import { 
+  Shield, 
+  Calendar, 
+  DollarSign, 
+  Loader2,
+  CheckCircle,
+  AlertCircle
+} from 'lucide-react';
+
+// Initialize Aptos client
+const aptosConfig = new AptosConfig({ 
+  network: NETWORK as Network 
+});
+const aptos = new Aptos(aptosConfig);
 
 export default function BuyPolicyPage() {
   const { connected, account, signAndSubmitTransaction } = useWallet();
   const { toast } = useToast();
+  const [templates, setTemplates] = useState<PolicyTemplate[]>([]);
   const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    cropType: '',
-    coverageAmount: '',
-    duration: '',
-  });
+  const [purchasing, setPurchasing] = useState<string | null>(null);
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
+  useEffect(() => {
+    if (connected) {
+      loadTemplates();
+    }
+  }, [connected]);
 
-  const calculatePremium = (coverageAmount: number): number => {
-    return coverageAmount * 0.1; // 10% of coverage amount
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!connected || !account) {
+  const loadTemplates = async () => {
+    try {
+      setLoading(true);
+      // Use getActivePolicyTemplates for farmers to only show active templates
+      const availableTemplates = await CropInsuranceService.getActivePolicyTemplates();
+      setTemplates(availableTemplates);
+    } catch (error) {
+      console.error('Error loading policy templates:', error);
       toast({
-        title: "Wallet Not Connected",
+        title: "Error",
+        description: "Failed to load available policies. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBuyPolicy = async (template: PolicyTemplate) => {
+    if (!account || !signAndSubmitTransaction) {
+      toast({
+        title: "Wallet not connected",
         description: "Please connect your wallet to buy a policy.",
-        variant: "destructive",
+        variant: "destructive"
       });
       return;
     }
-
-    if (!formData.cropType || !formData.coverageAmount || !formData.duration) {
-      toast({
-        title: "Missing Information",
-        description: "Please fill in all required fields.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setLoading(true);
 
     try {
+      setPurchasing(template.id);
+      
+      console.log('Buying policy for template:', template);
+      console.log('Template ID:', template.id, 'Type:', typeof template.id);
+      console.log('User address:', account.address.toString());
+      
       // Create transaction payload
-      const transactionPayload = CropInsuranceService.createPolicyTransaction({
-        crop_type: formData.cropType,
-        coverage_amount: CropInsuranceService.aptToOctas(parseFloat(formData.coverageAmount)),
-        duration_days: parseInt(formData.duration),
+      const transactionPayload = CropInsuranceService.buyPolicyTransaction({
+        template_id: template.id,
       });
 
-      // Sign and submit transaction using wallet adapter
+      console.log('Transaction payload:', transactionPayload);
+
+      // Submit transaction
       const response = await signAndSubmitTransaction({
         sender: account.address,
         data: {
@@ -66,194 +85,204 @@ export default function BuyPolicyPage() {
           functionArguments: transactionPayload.functionArguments,
         },
       });
+      
+      console.log('Transaction response:', response);
+      
+      // Handle different response formats
+      let transactionHash;
+      if (typeof response === 'string') {
+        transactionHash = response;
+      } else if (response && typeof response === 'object') {
+        transactionHash = (response as any).hash || (response as any).transactionHash || (response as any).transaction_hash;
+      }
+      
+      if (transactionHash) {
+        // Wait for transaction to be confirmed
+        try {
+          await aptos.waitForTransaction({ transactionHash });
+        } catch (waitError) {
+          console.warn('Transaction wait failed, but transaction may have succeeded:', waitError);
+        }
+      }
 
       toast({
-        title: "Policy Created Successfully!",
-        description: `Transaction hash: ${response.hash.slice(0, 10)}...`,
+        title: "Policy Purchased Successfully!",
+        description: `Your ${template.crop_type} insurance policy has been activated.`,
       });
-
-      // Reset form
-      setFormData({
-        cropType: '',
-        coverageAmount: '',
-        duration: '',
-      });
-
-    } catch (error) {
-      console.error('Error creating policy:', error);
+      
+      // Reload templates to refresh data
+      await loadTemplates();
+    } catch (error: any) {
+      console.error('Error buying policy:', error);
+      
+      let errorTitle = "Purchase Failed";
+      let errorMessage = "Failed to purchase policy. Please try again.";
+      
+      // Handle specific error types
+      if (error.message && error.message.includes("User has rejected the request")) {
+        errorTitle = "Transaction Cancelled";
+        errorMessage = "You cancelled the transaction in your wallet. No charges were made.";
+      } else if (error.message && error.message.includes("insufficient")) {
+        errorTitle = "Insufficient Funds";
+        errorMessage = "You don't have enough APT tokens to pay the premium.";
+      } else if (error.message && error.message.includes("E_NOT_ADMIN")) {
+        errorTitle = "Access Denied";
+        errorMessage = "Admin permission required for this action.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       toast({
-        title: "Error Creating Policy",
-        description: error instanceof Error ? error.message : "Please try again.",
-        variant: "destructive",
+        title: errorTitle,
+        description: errorMessage,
+        variant: errorTitle === "Transaction Cancelled" ? "default" : "destructive"
       });
     } finally {
-      setLoading(false);
+      setPurchasing(null);
     }
   };
 
-  const coverageAmount = parseFloat(formData.coverageAmount) || 0;
-  const premium = calculatePremium(coverageAmount);
+  const formatDuration = (durationInDays: string) => {
+    return `${durationInDays} days`;
+  };
+
+  const formatAPT = (amount: string) => {
+    return (parseInt(amount) / 100000000).toFixed(2); // Convert from octas to APT
+  };
 
   if (!connected) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-        <div className="sm:mx-auto sm:w-full sm:max-w-md">
-          <div className="text-center">
-            <Shield className="h-12 w-12 text-gray-400 mx-auto" />
-            <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
-              Connect Your Wallet
-            </h2>
-            <p className="mt-2 text-sm text-gray-600">
-              You need to connect your wallet to buy a policy
-            </p>
-          </div>
-        </div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <Shield className="h-12 w-12 text-green-600 mx-auto mb-4" />
+            <CardTitle>Connect Your Wallet</CardTitle>
+            <CardDescription>
+              You need to connect your wallet to purchase insurance policies
+            </CardDescription>
+          </CardHeader>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-extrabold text-gray-900">Buy Crop Insurance Policy</h1>
-          <p className="mt-2 text-lg text-gray-600">
-            Protect your crops with blockchain-powered insurance
+          <h1 className="text-3xl font-extrabold text-gray-900 sm:text-4xl">
+            Available Insurance Policies
+          </h1>
+          <p className="mt-4 text-xl text-gray-600">
+            Choose from our range of crop insurance templates created by administrators
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Policy Form */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Policy Details</CardTitle>
-              <CardDescription>
-                Fill in the details for your crop insurance policy
-              </CardDescription>
-            </CardHeader>
+        {loading ? (
+          <div className="flex justify-center items-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-green-600" />
+            <span className="ml-2 text-gray-600">Loading available policies...</span>
+          </div>
+        ) : templates.length === 0 ? (
+          <Card className="text-center py-12">
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div>
-                  <Label htmlFor="cropType">Crop Type *</Label>
-                  <select
-                    id="cropType"
-                    title="Select crop type"
-                    value={formData.cropType}
-                    onChange={(e) => handleInputChange('cropType', e.target.value)}
-                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
-                    required
-                  >
-                    <option value="">Select a crop type</option>
-                    {CROP_TYPES.map((crop) => (
-                      <option key={crop} value={crop}>
-                        {crop}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <Label htmlFor="coverageAmount">Coverage Amount (APT) *</Label>
-                  <Input
-                    id="coverageAmount"
-                    type="number"
-                    step="0.1"
-                    min="1"
-                    max="1000"
-                    value={formData.coverageAmount}
-                    onChange={(e) => handleInputChange('coverageAmount', e.target.value)}
-                    placeholder="Enter coverage amount"
-                    required
-                  />
-                  <p className="mt-1 text-xs text-gray-500">
-                    Minimum 1 APT, Maximum 1000 APT
-                  </p>
-                </div>
-
-                <div>
-                  <Label htmlFor="duration">Policy Duration (Days) *</Label>
-                  <Input
-                    id="duration"
-                    type="number"
-                    min="30"
-                    max="365"
-                    value={formData.duration}
-                    onChange={(e) => handleInputChange('duration', e.target.value)}
-                    placeholder="Enter duration in days"
-                    required
-                  />
-                  <p className="mt-1 text-xs text-gray-500">
-                    Minimum 30 days, Maximum 365 days
-                  </p>
-                </div>
-
-                <Button
-                  type="submit"
-                  className="w-full bg-green-600 hover:bg-green-700"
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Creating Policy...
-                    </>
-                  ) : (
-                    'Buy Policy'
-                  )}
-                </Button>
-              </form>
+              <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <CardTitle className="text-gray-600 mb-2">No Policies Available</CardTitle>
+              <CardDescription>
+                There are currently no insurance policy templates available. 
+                Please check back later or contact an administrator.
+              </CardDescription>
             </CardContent>
           </Card>
-
-          {/* Policy Summary */}
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Policy Summary</CardTitle>
-                <CardDescription>
-                  Review your policy details before purchase
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Crop Type:</span>
-                  <span className="font-medium">{formData.cropType || 'Not selected'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Coverage Amount:</span>
-                  <span className="font-medium">{formData.coverageAmount || '0'} APT</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Duration:</span>
-                  <span className="font-medium">{formData.duration || '0'} days</span>
-                </div>
-                <hr />
-                <div className="flex justify-between text-lg font-semibold">
-                  <span>Premium (10%):</span>
-                  <span className="text-green-600">{premium.toFixed(2)} APT</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-blue-200 bg-blue-50">
-              <CardContent className="pt-6">
-                <div className="flex">
-                  <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5" />
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-blue-800">
-                      Important Information
-                    </h3>
-                    <div className="mt-2 text-sm text-blue-700 space-y-2">
-                      <p>• Premium is 10% of the coverage amount</p>
-                      <p>• Policy becomes active immediately after purchase</p>
-                      <p>• Claims can be submitted anytime during the policy period</p>
-                      <p>• All transactions are recorded on the Aptos blockchain</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {templates.map((template) => (
+              <Card key={template.id} className="hover:shadow-lg transition-shadow duration-200">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-xl text-green-700">
+                      {template.crop_type} Insurance
+                    </CardTitle>
+                    <Shield className="h-6 w-6 text-green-600" />
+                  </div>
+                  <CardDescription className="text-sm text-gray-600">
+                    Professional crop insurance for {template.crop_type.toLowerCase()} farming
+                  </CardDescription>
+                </CardHeader>
+                
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center space-x-2">
+                      <DollarSign className="h-4 w-4 text-green-600" />
+                      <div>
+                        <p className="text-sm font-medium">Coverage</p>
+                        <p className="text-lg font-bold text-green-600">
+                          {formatAPT(template.coverage_amount)} APT
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <DollarSign className="h-4 w-4 text-blue-600" />
+                      <div>
+                        <p className="text-sm font-medium">Premium</p>
+                        <p className="text-lg font-bold text-blue-600">
+                          {formatAPT(template.premium)} APT
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                  
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="h-4 w-4 text-gray-600" />
+                    <div>
+                      <p className="text-sm font-medium">Duration</p>
+                      <p className="text-sm text-gray-600">
+                        {formatDuration(template.duration_days)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t">
+                    <Button 
+                      onClick={() => handleBuyPolicy(template)}
+                      disabled={purchasing === template.id}
+                      className="w-full"
+                    >
+                      {purchasing === template.id ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Purchasing...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="mr-2 h-4 w-4" />
+                          Buy Policy
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
+        )}
+
+        <div className="mt-12 text-center">
+          <Card className="bg-green-50 border-green-200">
+            <CardContent className="p-6">
+              <h3 className="text-lg font-semibold text-green-800 mb-2">
+                How Policy Purchase Works
+              </h3>
+              <div className="text-sm text-green-700 space-y-1">
+                <p>• Policies are created by administrators based on market conditions</p>
+                <p>• Premium is paid upfront using APT tokens from your wallet</p>
+                <p>• Coverage activates immediately after purchase</p>
+                <p>• Submit claims during the policy period if crop damage occurs</p>
+                <p>• Approved claims are paid out automatically to your wallet</p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

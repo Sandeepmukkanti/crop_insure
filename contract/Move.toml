@@ -1,12 +1,16 @@
 [package]
-name = "CropInsurance"
+name = "crop_insurance1"
 version = "1.0.0"
 authors = []
 
 [addresses]
-crop_insurance1 = "0xae040ca9eb9583756c4dfc6bd7d35a258ac91b9c80cff47a6924731eb690ef7b"
+crop_insurance1 = "_"
 
-[dependencies]
-AptosFramework = { git = "https://github.com/aptos-labs/aptos-framework.git", rev = "mainnet", subdir = "aptos-framework" }
+[dev-addresses]
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-core.git"
+rev = "mainnet"
+subdir = "aptos-move/framework/aptos-framework"
 
 [dev-dependencies]

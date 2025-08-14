@@ -3,9 +3,11 @@ import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { Button } from './ui/button';
 import { Wallet, Shield } from 'lucide-react';
 import { CropInsuranceService } from '../services/crop-insurance';
+import { useUser } from '../contexts/UserContext';
 
 export default function Navigation() {
   const location = useLocation();
+  const { userType } = useUser();
   const { 
     connected, 
     account, 
@@ -30,7 +32,16 @@ export default function Navigation() {
     return location.pathname === path;
   };
 
-  const isAdmin = account ? CropInsuranceService.isAdmin(account.address.toString()) : false;
+  const isAdmin = userType === 'admin';
+
+  // Debug logging
+  console.log('🧭 Navigation Debug:', {
+    connected,
+    userType,
+    isAdmin,
+    currentPath: location.pathname,
+    account: account?.address.toString()
+  });
 
   return (
     <nav className="bg-white shadow-sm border-b">
@@ -53,16 +64,40 @@ export default function Navigation() {
               >
                 Home
               </Link>
-              <Link
-                to="/buy-policy"
-                className={`text-sm font-medium transition-colors hover:text-green-600 ${
-                  isActive('/buy-policy') ? 'text-green-600' : 'text-gray-500'
-                }`}
-              >
-                Buy Policy
-              </Link>
-              {connected && (
+              
+              {/* Admin Navigation */}
+              {connected && isAdmin && (
                 <>
+                  <Link
+                    to="/admin"
+                    className={`text-sm font-medium transition-colors hover:text-green-600 ${
+                      isActive('/admin') || isActive('/admin-dashboard') ? 'text-green-600' : 'text-gray-500'
+                    }`}
+                  >
+                    Admin Dashboard
+                  </Link>
+                </>
+              )}
+
+              {/* Farmer Navigation */}
+              {connected && !isAdmin && (
+                <>
+                  <Link
+                    to="/farmer-dashboard"
+                    className={`text-sm font-medium transition-colors hover:text-green-600 ${
+                      isActive('/farmer-dashboard') ? 'text-green-600' : 'text-gray-500'
+                    }`}
+                  >
+                    Dashboard
+                  </Link>
+                  <Link
+                    to="/buy-policy"
+                    className={`text-sm font-medium transition-colors hover:text-green-600 ${
+                      isActive('/buy-policy') ? 'text-green-600' : 'text-gray-500'
+                    }`}
+                  >
+                    Buy Policy
+                  </Link>
                   <Link
                     to="/my-policies"
                     className={`text-sm font-medium transition-colors hover:text-green-600 ${
@@ -79,17 +114,19 @@ export default function Navigation() {
                   >
                     Claims
                   </Link>
-                  {isAdmin && (
-                    <Link
-                      to="/admin"
-                      className={`text-sm font-medium transition-colors hover:text-green-600 ${
-                        isActive('/admin') ? 'text-green-600' : 'text-gray-500'
-                      }`}
-                    >
-                      Admin Dashboard
-                    </Link>
-                  )}
                 </>
+              )}
+
+              {/* Guest Navigation */}
+              {!connected && (
+                <Link
+                  to="/register-farmer"
+                  className={`text-sm font-medium transition-colors hover:text-green-600 ${
+                    isActive('/register-farmer') || isActive('/farmer-registration') ? 'text-green-600' : 'text-gray-500'
+                  }`}
+                >
+                  Register as Farmer
+                </Link>
               )}
             </div>
 

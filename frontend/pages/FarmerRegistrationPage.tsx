@@ -1,0 +1,354 @@
+import { useState, useEffect } from 'react';
+import { useWallet } from '@aptos-labs/wallet-adapter-react';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { useToast } from '../components/ui/use-toast';
+import { Shield, User, MapPin, Phone, Mail, Wallet, CheckCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useUser } from '../contexts/UserContext';
+
+interface FarmerRegistrationData {
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  farmSize: string;
+  primaryCrop: string;
+}
+
+export default function FarmerRegistrationPage() {
+  const { connected, account, connect, wallets } = useWallet();
+  const { checkUserStatus } = useUser();
+  const { toast } = useToast();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<'form' | 'wallet' | 'complete'>('form');
+  const [formData, setFormData] = useState<FarmerRegistrationData>({
+    name: '',
+    phone: '',
+    email: '',
+    address: '',
+    farmSize: '',
+    primaryCrop: 'Rice',
+  });
+
+  const handleInputChange = (field: keyof FarmerRegistrationData, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate form
+    const { name, phone, email, address, farmSize } = formData;
+    if (!name || !phone || !email || !address || !farmSize) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Move to wallet connection step
+    setStep('wallet');
+  };
+
+  const handleWalletConnect = async () => {
+    if (!connected) {
+      const availableWallet = wallets.find(wallet => wallet.readyState === 'Installed');
+      if (availableWallet) {
+        await connect(availableWallet.name);
+      }
+    }
+  };
+
+  const completeRegistration = async () => {
+    if (!connected || !account) {
+      toast({
+        title: "Wallet Not Connected",
+        description: "Please connect your wallet to complete registration.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Store farmer registration
+      const farmerData = {
+        ...formData,
+        walletAddress: account.address.toString(),
+        registrationDate: new Date().toISOString(),
+        isRegistered: true,
+      };
+
+      localStorage.setItem(`farmer_${account.address.toString()}`, JSON.stringify(farmerData));
+
+      // Trigger user context to check status and update userType
+      checkUserStatus();
+
+      toast({
+        title: "Registration Successful! 🎉",
+        description: "Welcome to CropInsure! Redirecting to your dashboard...",
+      });
+
+      setStep('complete');
+
+      // Redirect to farmer dashboard after 2 seconds
+      setTimeout(() => {
+        navigate('/farmer-dashboard');
+      }, 2000);
+
+    } catch (error) {
+      console.error('Error registering farmer:', error);
+      toast({
+        title: "Registration Failed",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-complete when wallet connects after form is filled
+  useEffect(() => {
+    if (step === 'wallet' && connected && account) {
+      completeRegistration();
+    }
+  }, [step, connected, account]);
+
+  // Render different steps
+  if (step === 'complete') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="text-center">
+            <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
+            <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
+              Registration Complete! 🎉
+            </h2>
+            <p className="mt-2 text-sm text-gray-600">
+              Redirecting to your farmer dashboard...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'wallet') {
+    return (
+      <div className="min-h-screen bg-gray-50 py-12">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">
+              🔗 Connect Your Wallet
+            </h1>
+            <p className="text-lg text-gray-600">
+              Last step: Connect your wallet to complete registration
+            </p>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Wallet className="h-5 w-5 mr-2" />
+                Wallet Connection
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p className="text-green-800 font-semibold mb-2">✅ Registration Form Completed!</p>
+                <p className="text-green-700 text-sm">
+                  Name: <strong>{formData.name}</strong> | Farm: <strong>{formData.farmSize} acres</strong> | Crop: <strong>{formData.primaryCrop}</strong>
+                </p>
+              </div>
+
+              <div className="text-center space-y-4">
+                {connected ? (
+                  <div className="space-y-4">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <p className="text-blue-800 font-semibold">🔗 Wallet Connected!</p>
+                      <code className="text-sm text-blue-700 break-all">
+                        {account?.address.toString()}
+                      </code>
+                    </div>
+                    <p className="text-gray-600">Completing registration...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="text-gray-600">Connect your wallet to complete registration</p>
+                    <Button onClick={handleWalletConnect} className="bg-blue-600 hover:bg-blue-700">
+                      <Wallet className="h-4 w-4 mr-2" />
+                      Connect Wallet
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-between">
+                <Button variant="outline" onClick={() => setStep('form')}>
+                  ← Back to Form
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Default: Form step
+  return (
+    <div className="min-h-screen bg-gray-50 py-12">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-4">
+            🌾 Farmer Registration
+          </h1>
+          <p className="text-lg text-gray-600">
+            Join CropInsure and protect your agricultural investments
+          </p>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <User className="h-5 w-5 mr-2" />
+              Personal Information
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleFormSubmit} className="space-y-6">
+              {/* Name */}
+              <div>
+                <Label htmlFor="name">Full Name *</Label>
+                <Input
+                  id="name"
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => handleInputChange('name', e.target.value)}
+                  placeholder="Enter your full name"
+                  required
+                />
+              </div>
+
+              {/* Phone and Email */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="phone">Phone Number *</Label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="phone"
+                      type="tel"
+                      value={formData.phone}
+                      onChange={(e) => handleInputChange('phone', e.target.value)}
+                      placeholder="+1 234 567 8900"
+                      className="pl-10"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="email">Email Address *</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="email"
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => handleInputChange('email', e.target.value)}
+                      placeholder="farmer@example.com"
+                      className="pl-10"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Address */}
+              <div>
+                <Label htmlFor="address">Farm Address *</Label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="address"
+                    type="text"
+                    value={formData.address}
+                    onChange={(e) => handleInputChange('address', e.target.value)}
+                    placeholder="Street, City, State, ZIP"
+                    className="pl-10"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Farm Details */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="farmSize">Farm Size (acres) *</Label>
+                  <Input
+                    id="farmSize"
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    value={formData.farmSize}
+                    onChange={(e) => handleInputChange('farmSize', e.target.value)}
+                    placeholder="e.g., 25.5"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="primaryCrop">Primary Crop *</Label>
+                  <select
+                    id="primaryCrop"
+                    title="Select primary crop"
+                    value={formData.primaryCrop}
+                    onChange={(e) => handleInputChange('primaryCrop', e.target.value)}
+                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                    required
+                  >
+                    <option value="Rice">Rice</option>
+                    <option value="Wheat">Wheat</option>
+                    <option value="Corn">Corn</option>
+                    <option value="Soybeans">Soybeans</option>
+                    <option value="Cotton">Cotton</option>
+                    <option value="Sugarcane">Sugarcane</option>
+                    <option value="Barley">Barley</option>
+                    <option value="Oats">Oats</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Next Step Info */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-blue-800 font-semibold mb-2">📱 Next Step</p>
+                <p className="text-sm text-blue-700">
+                  After filling this form, you'll be prompted to connect your wallet to complete registration.
+                  No wallet connection is required at this step.
+                </p>
+              </div>
+
+              <Button
+                type="submit"
+                className="w-full bg-green-600 hover:bg-green-700"
+                disabled={loading}
+              >
+                Continue to Wallet Connection →
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

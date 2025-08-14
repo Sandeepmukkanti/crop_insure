@@ -1,5 +1,17 @@
+export interface PolicyTemplate {
+  id: string;
+  name: string;
+  crop_type: string;
+  coverage_amount: string;
+  premium: string;
+  duration_days: string;
+  created_at: string;
+  active: boolean;
+}
+
 export interface Policy {
   id: string;
+  template_id: string;
   farmer: string;
   crop_type: string;
   coverage_amount: string;
@@ -29,10 +41,16 @@ export interface PoolStats {
 export type PolicyStatus = 1 | 2 | 3; // ACTIVE | EXPIRED | CLAIMED
 export type ClaimStatus = 1 | 2 | 3; // PENDING | APPROVED | REJECTED
 
-export interface CreatePolicyParams {
+export interface CreatePolicyTemplateParams {
+  name: string;
   crop_type: string;
   coverage_amount: number;
+  premium: number;
   duration_days: number;
+}
+
+export interface BuyPolicyParams {
+  template_id: string;
 }
 
 export interface SubmitClaimParams {

@@ -13,6 +13,7 @@ import {
   Plus, 
   Settings,
   FileText,
+  Users,
   AlertTriangle,
   Loader2,
   Edit,
@@ -20,8 +21,8 @@ import {
   Eye
 } from 'lucide-react';
 
-export default function AdminDashboardPage() {
-  const { connected, account, signAndSubmitTransaction, wallet } = useWallet();
+export default function NewAdminDashboardPage() {
+  const { connected, account, signAndSubmitTransaction } = useWallet();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<'create' | 'manage'>('create');
   const [policyTemplates, setPolicyTemplates] = useState<PolicyTemplate[]>([]);
@@ -37,16 +38,6 @@ export default function AdminDashboardPage() {
   });
 
   const isAdmin = account ? CropInsuranceService.isAdmin(account.address.toString()) : false;
-
-  // Debug wallet connection
-  useEffect(() => {
-    console.log('Wallet Debug Info:', {
-      connected,
-      account: account?.address?.toString(),
-      walletName: wallet?.name,
-      isAdmin,
-    });
-  }, [connected, account, wallet, isAdmin]);
 
   const fetchTemplates = async () => {
     if (!connected || !account || !isAdmin) return;
@@ -72,35 +63,6 @@ export default function AdminDashboardPage() {
   }, [connected, account, isAdmin]);
 
   const handleCreateTemplate = async () => {
-    // Check wallet connection first
-    if (!connected) {
-      toast({
-        title: "Wallet Not Connected",
-        description: "Please connect your wallet first.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!account) {
-      toast({
-        title: "Account Not Found",
-        description: "Unable to access your wallet account. Please reconnect your wallet.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Check admin permissions
-    if (!isAdmin) {
-      toast({
-        title: "Access Denied",
-        description: "Only administrators can create policy templates.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     if (!templateForm.name || !templateForm.crop_type || templateForm.coverage_amount <= 0 || templateForm.premium <= 0) {
       toast({
         title: "Validation Error",
@@ -113,26 +75,19 @@ export default function AdminDashboardPage() {
     setCreatingTemplate(true);
 
     try {
-      console.log('Creating template with wallet:', account.address.toString());
-      console.log('Is admin:', isAdmin);
-      
       const transactionPayload = CropInsuranceService.createPolicyTemplateTransaction({
         ...templateForm,
         coverage_amount: CropInsuranceService.aptToOctas(templateForm.coverage_amount),
         premium: CropInsuranceService.aptToOctas(templateForm.premium),
       });
 
-      console.log('Transaction payload:', transactionPayload);
-
-      const response = await signAndSubmitTransaction({
-        sender: account.address,
+      await signAndSubmitTransaction({
+        sender: account!.address,
         data: {
           function: transactionPayload.function as `${string}::${string}::${string}`,
           functionArguments: transactionPayload.functionArguments,
         },
       });
-
-      console.log('Transaction response:', response);
 
       toast({
         title: "Template Created Successfully! 🎉",
@@ -211,16 +166,6 @@ export default function AdminDashboardPage() {
           <p className="mt-2 text-xl text-gray-600">
             Create and manage crop insurance policy templates
           </p>
-          
-          {/* Success Status */}
-          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-            <h3 className="font-semibold text-green-900 mb-2">✅ System Ready!</h3>
-            <div className="text-sm text-green-800 space-y-1">
-              <p>• Your wallet is connected and has admin access</p>
-              <p>• New contract deployed with your address as admin</p>
-              <p>• You can now create policy templates!</p>
-            </div>
-          </div>
         </div>
 
         {/* Tabs */}

@@ -1,38 +1,30 @@
-import { MODULE_ADDRESS, MODULE_NAME, ADMIN_ADDRESS } from "../constants";
-import { aptosClient } from "../utils/aptosClient";
+import { Aptos, AptosConfig, Network } from "@aptos-labs/ts-sdk";
+import { MODULE_ADDRESS, MODULE_NAME, ADMIN_ADDRESS, NETWORK } from "../constants";
 import type { 
-  PolicyTemplate,
   Policy, 
   Claim, 
   PoolStats, 
-  CreatePolicyTemplateParams,
-  BuyPolicyParams, 
+  CreatePolicyParams, 
   SubmitClaimParams 
 } from "../types/crop-insurance";
 
+// Initialize Aptos client
+const aptosConfig = new AptosConfig({ 
+  network: NETWORK as Network 
+});
+const aptos = new Aptos(aptosConfig);
+
 export class CropInsuranceService {
   
-  // Create a policy template (returns transaction payload) - Admin only
-  static createPolicyTemplateTransaction(params: CreatePolicyTemplateParams) {
+  // Create a new policy (returns transaction payload)
+  static createPolicyTransaction(params: CreatePolicyParams) {
     return {
-      function: `${MODULE_ADDRESS}::${MODULE_NAME}::create_policy_template`,
-      functionArguments: [
-        params.name,
-        params.crop_type,
-        params.coverage_amount,
-        params.premium,
-        params.duration_days,
-      ],
-    };
-  }
-
-  // Buy a policy from template (returns transaction payload) - Farmers
-  static buyPolicyTransaction(params: BuyPolicyParams) {
-    return {
-      function: `${MODULE_ADDRESS}::${MODULE_NAME}::buy_policy`,
+      function: `${MODULE_ADDRESS}::${MODULE_NAME}::create_policy`,
       functionArguments: [
         ADMIN_ADDRESS, // admin_addr
-        parseInt(params.template_id),
+        params.crop_type,
+        params.coverage_amount,
+        params.duration_days,
       ],
     };
   }
@@ -75,45 +67,13 @@ export class CropInsuranceService {
 
   // View functions
   
-  // Get active policy templates for buying
-  static async getActivePolicyTemplates(): Promise<PolicyTemplate[]> {
-    try {
-      const templates = await aptosClient().view({
-        payload: {
-          function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_active_templates`,
-          functionArguments: [MODULE_ADDRESS],
-        },
-      });
-      return templates[0] as PolicyTemplate[];
-    } catch (error) {
-      console.error('Error fetching active templates:', error);
-      return [];
-    }
-  }
-
-  // Get all policy templates (admin view)
-  static async getAllPolicyTemplates(): Promise<PolicyTemplate[]> {
-    try {
-      const templates = await aptosClient().view({
-        payload: {
-          function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_all_templates`,
-          functionArguments: [MODULE_ADDRESS],
-        },
-      });
-      return templates[0] as PolicyTemplate[];
-    } catch (error) {
-      console.error('Error fetching all templates:', error);
-      return [];
-    }
-  }
-
   // Get policies by farmer
   static async getPoliciesByFarmer(farmerAddress: string): Promise<Policy[]> {
     try {
-      const policies = await aptosClient().view({
+      const policies = await aptos.view({
         payload: {
           function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_policies_by_farmer`,
-          functionArguments: [MODULE_ADDRESS, farmerAddress],
+          functionArguments: [ADMIN_ADDRESS, farmerAddress],
         },
       });
       return policies[0] as Policy[];
@@ -126,10 +86,10 @@ export class CropInsuranceService {
   // Get pending claims (admin view)
   static async getPendingClaims(): Promise<Claim[]> {
     try {
-      const claims = await aptosClient().view({
+      const claims = await aptos.view({
         payload: {
           function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_pending_claims`,
-          functionArguments: [MODULE_ADDRESS],
+          functionArguments: [ADMIN_ADDRESS],
         },
       });
       return claims[0] as Claim[];
@@ -142,10 +102,10 @@ export class CropInsuranceService {
   // Get all claims (admin view)
   static async getAllClaims(): Promise<Claim[]> {
     try {
-      const claims = await aptosClient().view({
+      const claims = await aptos.view({
         payload: {
           function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_all_claims`,
-          functionArguments: [MODULE_ADDRESS],
+          functionArguments: [ADMIN_ADDRESS],
         },
       });
       return claims[0] as Claim[];
@@ -158,10 +118,10 @@ export class CropInsuranceService {
   // Get pool statistics
   static async getPoolStats(): Promise<PoolStats | null> {
     try {
-      const stats = await aptosClient().view({
+      const stats = await aptos.view({
         payload: {
           function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_pool_stats`,
-          functionArguments: [MODULE_ADDRESS],
+          functionArguments: [ADMIN_ADDRESS],
         },
       });
       
@@ -191,24 +151,9 @@ export class CropInsuranceService {
     return Number(octas) / 100_000_000;
   }
 
-  // Check if address is admin - YOUR SPECIFIC WALLET ONLY
+  // Check if address is admin
   static isAdmin(address: string): boolean {
-    // YOUR PERMANENT ADMIN ADDRESS
-    const adminAddress = "0x43661a8960ff2e47316e1782036be6d44a904f04d9075ed3e7e0797ed68138fa";
-    
-    // Normalize both addresses for comparison
-    const userAddr = address.toLowerCase().replace(/^0x/, '');
-    const targetAddr = adminAddress.toLowerCase().replace(/^0x/, '');
-    
-    const isMatch = userAddr === targetAddr;
-    
-    console.log('CropInsuranceService Admin Check:', {
-      userAddress: userAddr,
-      adminAddress: targetAddr,
-      isAdmin: isMatch
-    });
-    
-    return isMatch;
+    return address.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
   }
 
   // Format address for display
@@ -220,7 +165,7 @@ export class CropInsuranceService {
   // Get account balance
   static async getAccountBalance(address: string): Promise<number> {
     try {
-      const balance = await aptosClient().getAccountAPTAmount({ accountAddress: address });
+      const balance = await aptos.getAccountAPTAmount({ accountAddress: address });
       return this.octasToApt(balance);
     } catch (error) {
       console.error('Error fetching balance:', error);

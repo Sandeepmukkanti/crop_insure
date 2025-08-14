@@ -11,7 +11,7 @@ export function WalletProvider({ children }: WalletProviderProps) {
     <AptosWalletAdapterProvider
       autoConnect={true}
       dappConfig={{
-        network: Network.TESTNET,
+        network: Network.DEVNET,
       }}
     >
       {children}

@@ -1,12 +1,17 @@
-export const NETWORK = import.meta.env.VITE_APP_NETWORK ?? "testnet";
-export const MODULE_ADDRESS = import.meta.env.VITE_MODULE_PUBLISHER_ACCOUNT_ADDRESS ?? "0xae040ca9eb9583756c4dfc6bd7d35a258ac91b9c80cff47a6924731eb690ef7b";
+export const NETWORK = import.meta.env.VITE_APP_NETWORK ?? "devnet";
+export const MODULE_ADDRESS = "0xf2a5931b90cdc94a781d5613eb35c7c2385fd141d573d581e32746efb4382bd4";
 export const APTOS_API_KEY = import.meta.env.VITE_APTOS_API_KEY;
 
-// Contract module name
-export const MODULE_NAME = "crop_insurance";
+// Contract module name - using your admin contract
+export const MODULE_NAME = "crop_insurance_petra_admin";
 
-// Admin address (same as module publisher for now)
-export const ADMIN_ADDRESS = MODULE_ADDRESS;
+// Admin addresses - YOUR SPECIFIC wallet address
+export const ADMIN_ADDRESSES = [
+  "0x43661a8960ff2e47316e1782036be6d44a904f04d9075ed3e7e0797ed68138fa", // YOUR wallet address - PERMANENT ADMIN
+];
+
+// Primary admin address - YOUR wallet address
+export const ADMIN_ADDRESS = "0x43661a8960ff2e47316e1782036be6d44a904f04d9075ed3e7e0797ed68138fa";
 
 // Crop types
 export const CROP_TYPES = [

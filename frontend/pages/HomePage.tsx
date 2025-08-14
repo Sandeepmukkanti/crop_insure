@@ -3,9 +3,31 @@ import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Shield, Users, Clock, TrendingUp, FileText, CheckCircle } from 'lucide-react';
+import { CropInsuranceService } from '../services/crop-insurance';
 
 export default function HomePage() {
-  const { connected } = useWallet();
+  const { connected, connect, wallets, account } = useWallet();
+
+  const isAdmin = account ? CropInsuranceService.isAdmin(account.address.toString()) : false;
+
+  // Debug information
+  console.log('🏠 HomePage Debug:', {
+    connected,
+    accountAddress: account?.address.toString(),
+    isAdmin,
+    expectedAdminAddress: '0xc2cfcb9a1855d38256bb59a8f94cc12d3f6d58679e703636868d8b07d426ab90'
+  });
+
+  const handleAdminConnect = async () => {
+    try {
+      if (wallets.length > 0) {
+        const availableWallet = wallets.find(wallet => wallet.readyState === 'Installed') || wallets[0];
+        await connect(availableWallet.name);
+      }
+    } catch (error) {
+      console.error('Failed to connect wallet:', error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50">
@@ -26,19 +48,28 @@ export default function HomePage() {
                 <div className="mt-5 sm:mt-8 sm:flex sm:justify-center lg:justify-start">
                   <div className="rounded-md shadow">
                     <Link
-                      to="/buy-policy"
+                      to="/register-farmer"
                       className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700 md:py-4 md:text-lg md:px-10"
                     >
-                      Get Started
+                      🌾 Register as Farmer
                     </Link>
                   </div>
                   <div className="mt-3 sm:mt-0 sm:ml-3">
-                    <a
-                      href="#how-it-works"
-                      className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-green-700 bg-green-100 hover:bg-green-200 md:py-4 md:text-lg md:px-10"
-                    >
-                      Learn More
-                    </a>
+                    {connected && isAdmin ? (
+                      <Link
+                        to="/admin"
+                        className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 md:py-4 md:text-lg md:px-10"
+                      >
+                        👨‍💼 Admin Dashboard
+                      </Link>
+                    ) : (
+                      <button
+                        onClick={handleAdminConnect}
+                        className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-green-700 bg-green-100 hover:bg-green-200 md:py-4 md:text-lg md:px-10"
+                      >
+                        🔐 Connect Wallet (Admin)
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
