@@ -1,0 +1,230 @@
+import { MODULE_ADDRESS, MODULE_NAME, ADMIN_ADDRESS } from "../constants";
+import { aptosClient } from "../utils/aptosClient";
+import type { 
+  PolicyTemplate,
+  Policy, 
+  Claim, 
+  PoolStats, 
+  CreatePolicyTemplateParams,
+  BuyPolicyParams, 
+  SubmitClaimParams 
+} from "../types/crop-insurance";
+
+export class CropInsuranceService {
+  
+  // Create a policy template (returns transaction payload) - Admin only
+  static createPolicyTemplateTransaction(params: CreatePolicyTemplateParams) {
+    return {
+      function: `${MODULE_ADDRESS}::${MODULE_NAME}::create_policy_template`,
+      functionArguments: [
+        params.name,
+        params.crop_type,
+        params.coverage_amount,
+        params.premium,
+        params.duration_days,
+      ],
+    };
+  }
+
+  // Buy a policy from template (returns transaction payload) - Farmers
+  static buyPolicyTransaction(params: BuyPolicyParams) {
+    return {
+      function: `${MODULE_ADDRESS}::${MODULE_NAME}::buy_policy`,
+      functionArguments: [
+        ADMIN_ADDRESS, // admin_addr
+        parseInt(params.template_id),
+      ],
+    };
+  }
+
+  // Submit a claim (returns transaction payload)
+  static submitClaimTransaction(params: SubmitClaimParams) {
+    return {
+      function: `${MODULE_ADDRESS}::${MODULE_NAME}::submit_claim`,
+      functionArguments: [
+        ADMIN_ADDRESS, // admin_addr
+        parseInt(params.policy_id),
+        params.reason,
+      ],
+    };
+  }
+
+  // Approve a claim (returns transaction payload)
+  static approveClaimTransaction(claimId: string) {
+    return {
+      function: `${MODULE_ADDRESS}::${MODULE_NAME}::approve_claim`,
+      functionArguments: [parseInt(claimId)],
+    };
+  }
+
+  // Reject a claim (returns transaction payload)
+  static rejectClaimTransaction(claimId: string) {
+    return {
+      function: `${MODULE_ADDRESS}::${MODULE_NAME}::reject_claim`,
+      functionArguments: [parseInt(claimId)],
+    };
+  }
+
+  // Initialize the insurance pool (returns transaction payload)
+  static initializeTransaction() {
+    return {
+      function: `${MODULE_ADDRESS}::${MODULE_NAME}::initialize`,
+      functionArguments: [],
+    };
+  }
+
+  // View functions
+  
+  // Get active policy templates for buying
+  static async getActivePolicyTemplates(): Promise<PolicyTemplate[]> {
+    try {
+      const templates = await aptosClient().view({
+        payload: {
+          function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_active_templates`,
+          functionArguments: [MODULE_ADDRESS],
+        },
+      });
+      return templates[0] as PolicyTemplate[];
+    } catch (error) {
+      console.error('Error fetching active templates:', error);
+      return [];
+    }
+  }
+
+  // Get all policy templates (admin view)
+  static async getAllPolicyTemplates(): Promise<PolicyTemplate[]> {
+    try {
+      const templates = await aptosClient().view({
+        payload: {
+          function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_all_templates`,
+          functionArguments: [MODULE_ADDRESS],
+        },
+      });
+      return templates[0] as PolicyTemplate[];
+    } catch (error) {
+      console.error('Error fetching all templates:', error);
+      return [];
+    }
+  }
+
+  // Get policies by farmer
+  static async getPoliciesByFarmer(farmerAddress: string): Promise<Policy[]> {
+    try {
+      const policies = await aptosClient().view({
+        payload: {
+          function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_policies_by_farmer`,
+          functionArguments: [MODULE_ADDRESS, farmerAddress],
+        },
+      });
+      return policies[0] as Policy[];
+    } catch (error) {
+      console.error('Error fetching policies:', error);
+      return [];
+    }
+  }
+
+  // Get pending claims (admin view)
+  static async getPendingClaims(): Promise<Claim[]> {
+    try {
+      const claims = await aptosClient().view({
+        payload: {
+          function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_pending_claims`,
+          functionArguments: [MODULE_ADDRESS],
+        },
+      });
+      return claims[0] as Claim[];
+    } catch (error) {
+      console.error('Error fetching pending claims:', error);
+      return [];
+    }
+  }
+
+  // Get all claims (admin view)
+  static async getAllClaims(): Promise<Claim[]> {
+    try {
+      const claims = await aptosClient().view({
+        payload: {
+          function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_all_claims`,
+          functionArguments: [MODULE_ADDRESS],
+        },
+      });
+      return claims[0] as Claim[];
+    } catch (error) {
+      console.error('Error fetching all claims:', error);
+      return [];
+    }
+  }
+
+  // Get pool statistics
+  static async getPoolStats(): Promise<PoolStats | null> {
+    try {
+      const stats = await aptosClient().view({
+        payload: {
+          function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_pool_stats`,
+          functionArguments: [MODULE_ADDRESS],
+        },
+      });
+      
+      const [totalPremium, totalClaims, totalPolicies, totalClaimsCount] = stats as [string, string, string, string];
+      
+      return {
+        total_premium_collected: totalPremium,
+        total_claims_paid: totalClaims,
+        total_policies: totalPolicies,
+        total_claims: totalClaimsCount,
+      };
+    } catch (error) {
+      console.error('Error fetching pool stats:', error);
+      return null;
+    }
+  }
+
+  // Utility functions
+  
+  // Convert APT to Octas (1 APT = 100,000,000 Octas)
+  static aptToOctas(apt: number): number {
+    return Math.floor(apt * 100_000_000);
+  }
+
+  // Convert Octas to APT
+  static octasToApt(octas: string | number): number {
+    return Number(octas) / 100_000_000;
+  }
+
+  // Check if address is admin - YOUR SPECIFIC WALLET ONLY
+  static isAdmin(address: string): boolean {
+    // YOUR PERMANENT ADMIN ADDRESS
+    const adminAddress = "0x43661a8960ff2e47316e1782036be6d44a904f04d9075ed3e7e0797ed68138fa";
+    
+    // Normalize both addresses for comparison
+    const userAddr = address.toLowerCase().replace(/^0x/, '');
+    const targetAddr = adminAddress.toLowerCase().replace(/^0x/, '');
+    
+    const isMatch = userAddr === targetAddr;
+    
+    console.log('CropInsuranceService Admin Check:', {
+      userAddress: userAddr,
+      adminAddress: targetAddr,
+      isAdmin: isMatch
+    });
+    
+    return isMatch;
+  }
+
+  // Format address for display
+  static formatAddress(address: string): string {
+    if (address.length <= 10) return address;
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  }
+
+  // Get account balance
+  static async getAccountBalance(address: string): Promise<number> {
+    try {
+      const balance = await aptosClient().getAccountAPTAmount({ accountAddress: address });
+      return this.octasToApt(balance);
+    } catch (error) {
+      console.error('Error fetching balance:', error);
+      return 0;
+    }
+  }
+}
