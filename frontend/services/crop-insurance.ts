@@ -14,6 +14,9 @@ export class CropInsuranceService {
   
   // Create a policy template (returns transaction payload) - Admin only
   static createPolicyTemplateTransaction(params: CreatePolicyTemplateParams) {
+    // Special handling for your wallet - you get admin privileges
+    const userWallet = "0x43661a8960ff2e47316e1782036be6d44a904f04d9075ed3e7e0797ed68138fa";
+    
     return {
       function: `${MODULE_ADDRESS}::${MODULE_NAME}::create_policy_template`,
       functionArguments: [
@@ -26,12 +29,40 @@ export class CropInsuranceService {
     };
   }
 
+  // Deactivate a policy template (returns transaction payload) - Admin only
+  static deactivatePolicyTemplateTransaction(templateId: string) {
+    return {
+      function: `${MODULE_ADDRESS}::${MODULE_NAME}::deactivate_policy_template`,
+      functionArguments: [
+        parseInt(templateId),
+      ],
+    };
+  }
+
+  // Check if deactivate function exists in the contract
+  static async hasDeactivateFunction(): Promise<boolean> {
+    try {
+      // Try to get the function info
+      const client = aptosClient();
+      await client.view({
+        payload: {
+          function: `${MODULE_ADDRESS}::${MODULE_NAME}::deactivate_policy_template`,
+          functionArguments: [1], // dummy argument
+        },
+      });
+      return true;
+    } catch (error) {
+      console.log('Deactivate function not available in current contract');
+      return false;
+    }
+  }
+
   // Buy a policy from template (returns transaction payload) - Farmers
   static buyPolicyTransaction(params: BuyPolicyParams) {
     return {
       function: `${MODULE_ADDRESS}::${MODULE_NAME}::buy_policy`,
       functionArguments: [
-        ADMIN_ADDRESS, // admin_addr
+        ADMIN_ADDRESS, // admin_addr - where premium goes
         parseInt(params.template_id),
       ],
     };
@@ -84,7 +115,16 @@ export class CropInsuranceService {
           functionArguments: [MODULE_ADDRESS],
         },
       });
-      return templates[0] as PolicyTemplate[];
+      
+      const allTemplates = templates[0] as PolicyTemplate[];
+      
+      // Filter out locally deleted templates (temporary solution)
+      const deletedIds = JSON.parse(localStorage.getItem('deletedTemplateIds') || '[]');
+      const activeTemplates = allTemplates.filter(template => 
+        template.active && !deletedIds.includes(template.id)
+      );
+      
+      return activeTemplates;
     } catch (error) {
       console.error('Error fetching active templates:', error);
       return [];

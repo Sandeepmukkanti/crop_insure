@@ -1,4 +1,4 @@
-module crop_insurance1::crop_insurance_petra_admin {
+module crop_insurance1::crop_insurance_petra_admin_v2 {
     use std::signer;
     use std::vector;
     use std::string::String;
@@ -172,6 +172,27 @@ module crop_insurance1::crop_insurance_petra_admin {
             coverage_amount,
             premium,
         });
+    }
+
+    // Deactivate a policy template (admin only)
+    public entry fun deactivate_policy_template(
+        admin: &signer,
+        template_id: u64,
+    ) acquires InsurancePool {
+        let admin_addr = signer::address_of(admin);
+        // Check if signer is the hardcoded admin
+        assert!(admin_addr == ADMIN_ADDRESS, E_NOT_ADMIN);
+        
+        // Access InsurancePool from the deployer's address
+        let deployer_addr = @crop_insurance1;
+        let pool = borrow_global_mut<InsurancePool>(deployer_addr);
+        
+        // Find template and deactivate it
+        let template_index = find_template_index(&pool.policy_templates, template_id);
+        assert!(template_index < vector::length(&pool.policy_templates), E_POLICY_NOT_FOUND);
+        
+        let template = vector::borrow_mut(&mut pool.policy_templates, template_index);
+        template.active = false;
     }
 
     // Buy a policy from template (farmers only)

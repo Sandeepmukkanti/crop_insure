@@ -26,6 +26,16 @@ export class CropInsuranceService {
     };
   }
 
+  // Deactivate a policy template (returns transaction payload) - Admin only
+  static deactivatePolicyTemplateTransaction(templateId: string) {
+    return {
+      function: `${MODULE_ADDRESS}::${MODULE_NAME}::deactivate_policy_template`,
+      functionArguments: [
+        parseInt(templateId),
+      ],
+    };
+  }
+
   // Buy a policy from template (returns transaction payload) - Farmers
   static buyPolicyTransaction(params: BuyPolicyParams) {
     return {
@@ -84,7 +94,16 @@ export class CropInsuranceService {
           functionArguments: [MODULE_ADDRESS],
         },
       });
-      return templates[0] as PolicyTemplate[];
+      
+      const allTemplates = templates[0] as PolicyTemplate[];
+      
+      // Filter out locally deleted templates (temporary solution)
+      const deletedIds = JSON.parse(localStorage.getItem('deletedTemplateIds') || '[]');
+      const activeTemplates = allTemplates.filter(template => 
+        template.active && !deletedIds.includes(template.id)
+      );
+      
+      return activeTemplates;
     } catch (error) {
       console.error('Error fetching active templates:', error);
       return [];

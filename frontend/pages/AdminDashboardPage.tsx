@@ -54,7 +54,12 @@ export default function AdminDashboardPage() {
     setLoading(true);
     try {
       const templates = await CropInsuranceService.getAllPolicyTemplates();
-      setPolicyTemplates(templates);
+      
+      // Filter out locally deleted templates
+      const deletedIds = JSON.parse(localStorage.getItem('deletedTemplateIds') || '[]');
+      const activeTemplates = templates.filter(template => !deletedIds.includes(template.id));
+      
+      setPolicyTemplates(activeTemplates);
     } catch (error) {
       console.error('Error fetching templates:', error);
       toast({
@@ -65,6 +70,67 @@ export default function AdminDashboardPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDeleteTemplate = async (templateId: string) => {
+    if (!connected || !account) {
+      toast({
+        title: "Wallet Not Connected",
+        description: "Please connect your wallet first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Show confirmation dialog
+    if (!window.confirm("Are you sure you want to delete this policy template? This action cannot be undone.")) {
+      return;
+    }
+
+    // For now, implement local deletion since contract function is not deployed yet
+    console.log('Implementing local deletion for template:', templateId);
+    
+    // Filter out the deleted template locally
+    const updatedTemplates = policyTemplates.filter(template => template.id !== templateId);
+    setPolicyTemplates(updatedTemplates);
+    
+    // Store deleted template IDs in localStorage for persistence
+    const deletedIds = JSON.parse(localStorage.getItem('deletedTemplateIds') || '[]');
+    if (!deletedIds.includes(templateId)) {
+      deletedIds.push(templateId);
+      localStorage.setItem('deletedTemplateIds', JSON.stringify(deletedIds));
+    }
+    
+    toast({
+      title: "Template Deleted Successfully! 🗑️",
+      description: "Template has been removed from manage policies and buy policy pages.",
+      variant: "default",
+    });
+
+    // Future contract implementation:
+    /*
+    try {
+      const transactionPayload = CropInsuranceService.deactivatePolicyTemplateTransaction(templateId);
+      
+      const response = await signAndSubmitTransaction({
+        sender: account.address,
+        data: {
+          function: transactionPayload.function as `${string}::${string}::${string}`,
+          functionArguments: transactionPayload.functionArguments,
+        },
+      });
+
+      toast({
+        title: "Template Deleted Successfully! 🗑️",
+        description: "The policy template has been deactivated and is no longer available for purchase.",
+      });
+
+      fetchTemplates();
+    } catch (error) {
+      console.error('Error deleting template:', error);
+      // Handle contract errors here
+    }
+    */
   };
 
   useEffect(() => {
@@ -501,7 +567,12 @@ export default function AdminDashboardPage() {
                               <Edit className="h-4 w-4 mr-1" />
                               Edit
                             </Button>
-                            <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700">
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() => handleDeleteTemplate(template.id.toString())}
+                            >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>

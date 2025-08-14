@@ -1,10 +1,10 @@
 [package]
 name = "crop_insurance1"
-version = "1.0.0"
+version = "2.0.0"
 authors = []
 
 [addresses]
-crop_insurance1 = "_"
+crop_insurance1 = "0x43661a8960ff2e47316e1782036be6d44a904f04d9075ed3e7e0797ed68138fa"
 
 [dev-addresses]
 
