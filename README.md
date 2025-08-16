@@ -121,6 +121,6 @@ We envision a world where every farmer, from smallholder operations to large agr
 - **Vercel**: Deployment and hosting platform
 
 ## Contract Details
-
+0x43661a8960ff2e47316e1782036be6d44a904f04d9075ed3e7e0797ed68138fa
 
 ![alt text](image.png)
