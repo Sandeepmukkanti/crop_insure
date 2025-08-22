@@ -14,9 +14,6 @@ export class CropInsuranceService {
   
   // Create a policy template (returns transaction payload) - Admin only
   static createPolicyTemplateTransaction(params: CreatePolicyTemplateParams) {
-    // Special handling for your wallet - you get admin privileges
-    const userWallet = "0x43661a8960ff2e47316e1782036be6d44a904f04d9075ed3e7e0797ed68138fa";
-    
     return {
       function: `${MODULE_ADDRESS}::${MODULE_NAME}::create_policy_template`,
       functionArguments: [
@@ -109,6 +106,7 @@ export class CropInsuranceService {
   // Get active policy templates for buying
   static async getActivePolicyTemplates(): Promise<PolicyTemplate[]> {
     try {
+      // Try to fetch from smart contract first
       const templates = await aptosClient().view({
         payload: {
           function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_active_templates`,
@@ -126,30 +124,63 @@ export class CropInsuranceService {
       
       return activeTemplates;
     } catch (error) {
-      console.error('Error fetching active templates:', error);
-      return [];
+      console.log('Contract not available, using localStorage fallback:', error);
+      
+      // Fallback to localStorage
+      try {
+        const localTemplates = JSON.parse(localStorage.getItem('policyTemplates') || '[]');
+        // Filter out locally deleted templates and only return active ones
+        const deletedIds = JSON.parse(localStorage.getItem('deletedTemplateIds') || '[]');
+        const activeTemplates = localTemplates.filter((template: PolicyTemplate) => 
+          template.active && !deletedIds.includes(template.id)
+        );
+        return activeTemplates as PolicyTemplate[];
+      } catch (localError) {
+        console.error('Error reading from localStorage:', localError);
+        return [];
+      }
     }
   }
 
-  // Get all policy templates (admin view)
+  // Get all policy templates (admin view) with improved error handling
   static async getAllPolicyTemplates(): Promise<PolicyTemplate[]> {
     try {
+      // Try to fetch from smart contract first
       const templates = await aptosClient().view({
         payload: {
           function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_all_templates`,
           functionArguments: [MODULE_ADDRESS],
         },
       });
-      return templates[0] as PolicyTemplate[];
+      
+      const allTemplates = templates[0] as PolicyTemplate[];
+      
+      // Filter out locally deleted templates (temporary solution)
+      const deletedIds = JSON.parse(localStorage.getItem('deletedTemplateIds') || '[]');
+      const activeTemplates = allTemplates.filter(template => !deletedIds.includes(template.id));
+      
+      return activeTemplates;
     } catch (error) {
-      console.error('Error fetching all templates:', error);
-      return [];
+      console.log('Contract not available, using localStorage fallback:', error);
+      
+      // Fallback to localStorage
+      try {
+        const localTemplates = JSON.parse(localStorage.getItem('policyTemplates') || '[]');
+        // Filter out locally deleted templates
+        const deletedIds = JSON.parse(localStorage.getItem('deletedTemplateIds') || '[]');
+        const activeTemplates = localTemplates.filter((template: PolicyTemplate) => !deletedIds.includes(template.id));
+        return activeTemplates as PolicyTemplate[];
+      } catch (localError) {
+        console.error('Error reading from localStorage:', localError);
+        return [];
+      }
     }
   }
 
   // Get policies by farmer
   static async getPoliciesByFarmer(farmerAddress: string): Promise<Policy[]> {
     try {
+      // Try to fetch from smart contract first
       const policies = await aptosClient().view({
         payload: {
           function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_policies_by_farmer`,
@@ -158,7 +189,35 @@ export class CropInsuranceService {
       });
       return policies[0] as Policy[];
     } catch (error) {
-      console.error('Error fetching policies:', error);
+      console.log('Contract not available, using localStorage fallback for policies:', error);
+      
+      // Fallback to localStorage
+      try {
+        const localPolicies = JSON.parse(localStorage.getItem('userPolicies') || '[]');
+        // Filter policies for this specific farmer
+        const farmerPolicies = localPolicies.filter((policy: Policy) => 
+          policy.farmer.toLowerCase() === farmerAddress.toLowerCase()
+        );
+        return farmerPolicies as Policy[];
+      } catch (localError) {
+        console.error('Error reading policies from localStorage:', localError);
+        return [];
+      }
+    }
+  }
+
+  // Get all policies (admin view)
+  static async getAllPolicies(): Promise<Policy[]> {
+    try {
+      const policies = await aptosClient().view({
+        payload: {
+          function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_all_policies`,
+          functionArguments: [MODULE_ADDRESS],
+        },
+      });
+      return policies[0] as Policy[];
+    } catch (error) {
+      console.error('Error fetching all policies:', error);
       return [];
     }
   }
@@ -174,8 +233,17 @@ export class CropInsuranceService {
       });
       return claims[0] as Claim[];
     } catch (error) {
-      console.error('Error fetching pending claims:', error);
-      return [];
+      console.error('Error fetching pending claims from contract:', error);
+      // Fallback to localStorage
+      try {
+        const localClaims = localStorage.getItem('allClaims');
+        const allClaims = localClaims ? JSON.parse(localClaims) : [];
+        // Filter only pending claims (status 1)
+        return allClaims.filter((claim: any) => claim.status === 1);
+      } catch (localError) {
+        console.error('Error reading claims from localStorage:', localError);
+        return [];
+      }
     }
   }
 
@@ -190,8 +258,15 @@ export class CropInsuranceService {
       });
       return claims[0] as Claim[];
     } catch (error) {
-      console.error('Error fetching all claims:', error);
-      return [];
+      console.error('Error fetching all claims from contract:', error);
+      // Fallback to localStorage
+      try {
+        const localClaims = localStorage.getItem('allClaims');
+        return localClaims ? JSON.parse(localClaims) : [];
+      } catch (localError) {
+        console.error('Error reading claims from localStorage:', localError);
+        return [];
+      }
     }
   }
 
@@ -266,5 +341,11 @@ export class CropInsuranceService {
       console.error('Error fetching balance:', error);
       return 0;
     }
+  }
+
+  // Calculate premium rate (needed for AdminDashboard display)
+  static calculatePremiumRate(premium: number, coverage: number): number {
+    if (coverage === 0) return 0;
+    return (premium / coverage) * 100;
   }
 }

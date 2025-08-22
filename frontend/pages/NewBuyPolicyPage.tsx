@@ -67,6 +67,10 @@ export default function BuyPolicyPage() {
           function: transactionPayload.function as `${string}::${string}::${string}`,
           functionArguments: transactionPayload.functionArguments,
         },
+        options: {
+          maxGasAmount: 5000,
+          gasUnitPrice: 100,
+        },
       });
 
       toast({

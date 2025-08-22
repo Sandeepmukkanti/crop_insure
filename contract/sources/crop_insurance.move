@@ -16,7 +16,7 @@ module crop_insurance1::crop_insurance_petra_admin_v2 {
     const E_INSUFFICIENT_FUNDS: u64 = 6;
     const E_CLAIM_ALREADY_PROCESSED: u64 = 7;
 
-    // Hardcoded admin address - YOUR WALLET
+    // Hardcoded admin addresses - YOUR WALLETS (Petra wallet address as main admin)
     const ADMIN_ADDRESS: address = @0x43661a8960ff2e47316e1782036be6d44a904f04d9075ed3e7e0797ed68138fa;
 
     // Policy Status

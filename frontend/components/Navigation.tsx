@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { Button } from './ui/button';
 import { Wallet, Shield } from 'lucide-react';
@@ -7,6 +7,7 @@ import { useUser } from '../contexts/UserContext';
 
 export default function Navigation() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { userType } = useUser();
   const { 
     connected, 
@@ -17,13 +18,29 @@ export default function Navigation() {
   } = useWallet();
 
   const handleWalletAction = async () => {
-    if (connected) {
-      await disconnect();
-    } else {
-      // Try to connect to the first available wallet
-      const availableWallet = wallets.find(wallet => wallet.readyState === 'Installed');
-      if (availableWallet) {
-        await connect(availableWallet.name);
+    try {
+      if (connected) {
+        console.log('🔌 Disconnecting wallet...');
+        await disconnect();
+        console.log('✅ Wallet disconnected successfully');
+        // Redirect to home page after logout
+        navigate('/');
+      } else {
+        console.log('🔗 Attempting to connect wallet...');
+        // Try to connect to the first available wallet
+        const availableWallet = wallets.find(wallet => wallet.readyState === 'Installed');
+        if (availableWallet) {
+          await connect(availableWallet.name);
+          console.log('✅ Wallet connected successfully');
+        } else {
+          console.warn('⚠️ No available wallets found');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Wallet action failed:', error);
+      // Force navigation to home even if disconnect fails
+      if (connected) {
+        navigate('/');
       }
     }
   };
@@ -56,14 +73,17 @@ export default function Navigation() {
 
           <div className="flex items-center space-x-8">
             <div className="hidden md:flex items-center space-x-8">
-              <Link
-                to="/"
-                className={`text-sm font-medium transition-colors hover:text-green-600 ${
-                  isActive('/') ? 'text-green-600' : 'text-gray-500'
-                }`}
-              >
-                Home
-              </Link>
+              {/* Home - only show when not connected */}
+              {!connected && (
+                <Link
+                  to="/"
+                  className={`text-sm font-medium transition-colors hover:text-green-600 ${
+                    isActive('/') ? 'text-green-600' : 'text-gray-500'
+                  }`}
+                >
+                  Home
+                </Link>
+              )}
               
               {/* Admin Navigation */}
               {connected && isAdmin && (

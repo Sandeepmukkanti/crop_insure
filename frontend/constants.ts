@@ -1,9 +1,9 @@
 export const NETWORK = import.meta.env.VITE_APP_NETWORK ?? "devnet";
-export const MODULE_ADDRESS = "0xf2a5931b90cdc94a781d5613eb35c7c2385fd141d573d581e32746efb4382bd4";
+export const MODULE_ADDRESS = "0xc2cfcb9a1855d38256bb59a8f94cc12d3f6d58679e703636868d8b07d426ab90";
 export const APTOS_API_KEY = import.meta.env.VITE_APTOS_API_KEY;
 
-// Contract module name - using your admin contract
-export const MODULE_NAME = "crop_insurance_petra_admin";
+// Contract module name - using your admin contract v2
+export const MODULE_NAME = "crop_insurance_petra_admin_v2";
 
 // Admin addresses - YOUR SPECIFIC wallet address
 export const ADMIN_ADDRESSES = [

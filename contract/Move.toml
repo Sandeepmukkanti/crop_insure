@@ -4,7 +4,7 @@ version = "2.0.0"
 authors = []
 
 [addresses]
-crop_insurance1 = "0x43661a8960ff2e47316e1782036be6d44a904f04d9075ed3e7e0797ed68138fa"
+crop_insurance1 = "0xc2cfcb9a1855d38256bb59a8f94cc12d3f6d58679e703636868d8b07d426ab90"
 
 [dev-addresses]
 
