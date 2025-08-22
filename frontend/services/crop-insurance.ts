@@ -209,6 +209,7 @@ export class CropInsuranceService {
   // Get all policies (admin view)
   static async getAllPolicies(): Promise<Policy[]> {
     try {
+      // Try blockchain first
       const policies = await aptosClient().view({
         payload: {
           function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_all_policies`,
@@ -217,8 +218,17 @@ export class CropInsuranceService {
       });
       return policies[0] as Policy[];
     } catch (error) {
-      console.error('Error fetching all policies:', error);
-      return [];
+      console.error('Error fetching all policies from blockchain, using localStorage fallback:', error);
+      
+      // Fallback to localStorage
+      try {
+        const localPolicies = JSON.parse(localStorage.getItem('userPolicies') || '[]');
+        console.log('All policies from localStorage:', localPolicies);
+        return localPolicies as Policy[];
+      } catch (localError) {
+        console.error('Error reading policies from localStorage:', localError);
+        return [];
+      }
     }
   }
 
@@ -231,7 +241,20 @@ export class CropInsuranceService {
           functionArguments: [MODULE_ADDRESS],
         },
       });
-      return claims[0] as Claim[];
+      const blockchainClaims = claims[0] as any[];
+      
+      // Convert blockchain format to frontend format
+      const formattedClaims = blockchainClaims.map((claim: any) => ({
+        id: claim.id,
+        policy_id: claim.policy_id,
+        farmer: claim.farmer,
+        reason: claim.reason,
+        submitted_at: claim.submitted_at,
+        status: claim.status,
+        processed_at: claim.processed_at || "0",
+      }));
+      
+      return formattedClaims;
     } catch (error) {
       console.error('Error fetching pending claims from contract:', error);
       // Fallback to localStorage
@@ -256,13 +279,30 @@ export class CropInsuranceService {
           functionArguments: [MODULE_ADDRESS],
         },
       });
-      return claims[0] as Claim[];
+      console.log('Claims from blockchain:', claims[0]);
+      const blockchainClaims = claims[0] as any[];
+      
+      // Convert blockchain format to frontend format
+      const formattedClaims = blockchainClaims.map((claim: any) => ({
+        id: claim.id,
+        policy_id: claim.policy_id,
+        farmer: claim.farmer,
+        reason: claim.reason,
+        submitted_at: claim.submitted_at,
+        status: claim.status,
+        processed_at: claim.processed_at || "0",
+      }));
+      
+      console.log('Formatted claims:', formattedClaims);
+      return formattedClaims;
     } catch (error) {
       console.error('Error fetching all claims from contract:', error);
       // Fallback to localStorage
       try {
         const localClaims = localStorage.getItem('allClaims');
-        return localClaims ? JSON.parse(localClaims) : [];
+        const parsedClaims = localClaims ? JSON.parse(localClaims) : [];
+        console.log('Claims from localStorage:', parsedClaims);
+        return parsedClaims;
       } catch (localError) {
         console.error('Error reading claims from localStorage:', localError);
         return [];

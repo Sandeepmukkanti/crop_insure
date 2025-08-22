@@ -37,19 +37,63 @@ export default function ClaimsPage() {
 
     setLoading(true);
     try {
-      const [userPolicies, allClaims] = await Promise.all([
-        CropInsuranceService.getPoliciesByFarmer(account.address.toString()),
-        CropInsuranceService.getAllClaims()
-      ]);
+      // Try blockchain first, fallback to localStorage
+      let userPolicies: Policy[] = [];
+      let allClaims: Claim[] = [];
+      
+      try {
+        userPolicies = await CropInsuranceService.getPoliciesByFarmer(account.address.toString());
+        allClaims = await CropInsuranceService.getAllClaims();
+      } catch (blockchainError) {
+        console.log('Blockchain not available, using localStorage fallback');
+        
+        // Get policies from localStorage
+        const localPolicies = JSON.parse(localStorage.getItem('userPolicies') || '[]');
+        userPolicies = localPolicies.filter((policy: Policy) => 
+          policy.farmer.toLowerCase() === account.address.toString().toLowerCase()
+        );
+        
+        // Get claims from localStorage
+        const localClaims = JSON.parse(localStorage.getItem('allClaims') || '[]');
+        allClaims = localClaims;
+      }
       
       setPolicies(userPolicies);
-      // Filter claims for this user
+      
+      // Filter claims for this user and update status from approved claims
+      const approvedClaims = JSON.parse(localStorage.getItem('approvedClaims') || '[]');
+      const rejectedClaims = JSON.parse(localStorage.getItem('rejectedClaims') || '[]');
+      
       const userClaims = allClaims.filter(claim => 
         claim.farmer.toLowerCase() === account.address.toString().toLowerCase()
-      );
+      ).map(claim => {
+        // Check if this claim has been approved
+        const approved = approvedClaims.find((approved: any) => approved.id === claim.id);
+        if (approved) {
+          return { ...claim, status: 2, processed_at: Math.floor(approved.approvedAt / 1000).toString() };
+        }
+        
+        // Check if this claim has been rejected
+        const rejected = rejectedClaims.find((rejected: any) => rejected.id === claim.id);
+        if (rejected) {
+          return { ...claim, status: 3, processed_at: Math.floor(rejected.rejectedAt / 1000).toString() };
+        }
+        
+        return claim;
+      });
+      
       setClaims(userClaims);
+      
+      console.log('Fetched user policies:', userPolicies);
+      console.log('Fetched user claims:', userClaims);
+      
     } catch (error) {
       console.error('Error fetching data:', error);
+      toast({
+        title: "Error Loading Data",
+        description: "Failed to load your policies and claims.",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -131,16 +175,19 @@ export default function ClaimsPage() {
         const claim = {
           id: Date.now().toString(),
           policy_id: selectedPolicy,
+          farmer: account!.address.toString(),
           reason: claimReason.trim(),
-          farmer_address: account!.address,
+          submitted_at: Math.floor(Date.now() / 1000).toString(), // Convert to seconds like blockchain
           status: 1, // Pending status
-          timestamp: Date.now().toString(),
-          admin_response: '',
+          processed_at: "0",
         };
 
         const existingClaims = JSON.parse(localStorage.getItem('allClaims') || '[]');
         existingClaims.push(claim);
         localStorage.setItem('allClaims', JSON.stringify(existingClaims));
+        
+        console.log('Claim saved to localStorage:', claim);
+        console.log('All claims in localStorage:', existingClaims);
 
         toast({
           title: "Claim Submitted Successfully!",
