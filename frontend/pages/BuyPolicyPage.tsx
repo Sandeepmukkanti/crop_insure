@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button';
 import { useToast } from '../components/ui/use-toast';
 import { CropInsuranceService } from '../services/crop-insurance';
 import { TransactionHelper } from '../utils/transactionHelper';
+import { FaucetService } from '../utils/faucet';
 import { Aptos, AptosConfig, Network } from "@aptos-labs/ts-sdk";
 import type { PolicyTemplate, Policy } from '../types/crop-insurance';
 import { NETWORK } from '../constants';
@@ -70,12 +71,45 @@ export default function BuyPolicyPage() {
       // Also load user's existing policies to prevent duplicates
       if (account) {
         try {
+          console.log('Loading policies for address:', account.address.toString());
           const existingPolicies = await CropInsuranceService.getPoliciesByFarmer(account.address.toString());
-          setUserPolicies(existingPolicies);
-          console.log('User existing policies:', existingPolicies);
+          console.log('Existing policies loaded from blockchain:', existingPolicies);
+          
+          // Load local policies as well
+          try {
+            const localPolicies = JSON.parse(localStorage.getItem('userPolicies') || '[]');
+            console.log('Local policies loaded:', localPolicies);
+            
+            // Merge blockchain and local policies, filtering duplicates by template_id
+            const mergedPolicies = [...existingPolicies];
+            
+            for (const localPolicy of localPolicies) {
+              // Only add local policy if we don't have it from blockchain
+              const hasMatchingPolicy = existingPolicies.some(
+                p => p.template_id.toString() === localPolicy.template_id.toString()
+              );
+              if (!hasMatchingPolicy) {
+                mergedPolicies.push(localPolicy);
+              }
+            }
+            
+            console.log('Final merged policies:', mergedPolicies);
+            setUserPolicies(mergedPolicies);
+          } catch (localError) {
+            console.log('Error loading local policies:', localError);
+            setUserPolicies(existingPolicies);
+          }
         } catch (error) {
-          console.log('No existing policies found or error fetching:', error);
-          setUserPolicies([]);
+          console.log('Error fetching blockchain policies:', error);
+          // Try loading from localStorage only
+          try {
+            const localPolicies = JSON.parse(localStorage.getItem('userPolicies') || '[]');
+            console.log('Fallback to local policies only:', localPolicies);
+            setUserPolicies(localPolicies);
+          } catch (localError) {
+            console.log('No existing policies found in local storage:', localError);
+            setUserPolicies([]);
+          }
         }
       }
       
@@ -100,7 +134,40 @@ export default function BuyPolicyPage() {
 
   // Check if farmer already has a policy for this template
   const hasExistingPolicy = (templateId: string): boolean => {
-    return userPolicies.some(policy => policy.template_id === templateId);
+    try {
+      // Validate template ID is within uint64 range
+      const numericId = BigInt(templateId);
+      if (numericId < 0n || numericId > 18446744073709551615n) {
+        console.error('Template ID out of uint64 range:', templateId);
+        return false;
+      }
+
+      // Convert to standardized string format for comparison
+      const normalizedTemplateId = numericId.toString();
+      
+      return userPolicies.some(policy => {
+        try {
+          const policyTemplateId = BigInt(policy.template_id);
+          const normalizedPolicyTemplateId = policyTemplateId.toString();
+          const matches = normalizedPolicyTemplateId === normalizedTemplateId;
+          
+          if (matches) {
+            console.log('Found matching policy:', { 
+              policyTemplateId: normalizedPolicyTemplateId, 
+              templateId: normalizedTemplateId,
+              policy
+            });
+          }
+          return matches;
+        } catch (error) {
+          console.error('Error processing policy template ID:', error);
+          return false;
+        }
+      });
+    } catch (error) {
+      console.error('Error processing template ID:', error);
+      return false;
+    }
   };
 
   const handleBuyPolicy = async (template: PolicyTemplate) => {
@@ -159,14 +226,17 @@ export default function BuyPolicyPage() {
 
         console.log('Transaction payload:', transactionPayload);
 
-        // Use TransactionHelper for enhanced transaction handling
+        // First ensure account has funds
+        await FaucetService.ensureFunds(account.address.toString());
+
+        // Use TransactionHelper for enhanced transaction handling with higher gas
         const result = await TransactionHelper.executeTransaction(
           signAndSubmitTransaction,
           account,
           transactionPayload,
           {
-            maxGasAmount: 2000,
-            gasUnitPrice: 100,
+            maxGasAmount: 5000, // Increased gas limit
+            gasUnitPrice: 150,  // Increased gas price
             autoFund: true
           }
         );

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { useToast } from '../components/ui/use-toast';
 import { CropInsuranceService } from '../services/crop-insurance';
 import { POLICY_STATUS, CLAIM_STATUS } from '../constants';

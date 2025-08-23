@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useWallet } from '@aptos-labs/wallet-adapter-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { aptosClient } from '../utils/aptosClient';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -129,7 +130,6 @@ export default function AdminDashboardPage() {
           description: `Found ${combinedClaims.length} claim(s) to review`,
         });
       }
-      
     } catch (error) {
       console.error('Error in fetchClaims:', error);
       
@@ -171,6 +171,27 @@ export default function AdminDashboardPage() {
       return;
     }
 
+    // Find the existing claim
+    const existingClaim = claims.find(c => c.id === claimId);
+    if (!existingClaim) {
+      toast({
+        title: "Error",
+        description: "Claim not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check if claim is already processed
+    if (existingClaim.status === 2 || existingClaim.status === 3) {
+      toast({
+        title: "Claim Already Processed",
+        description: `This claim has already been ${existingClaim.status === 2 ? 'approved' : 'rejected'}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!window.confirm("Are you sure you want to approve this claim? The coverage amount will be transferred to the farmer.")) {
       return;
     }
@@ -178,8 +199,8 @@ export default function AdminDashboardPage() {
     try {
       setLoading(true);
       
-      // Try blockchain first
       try {
+        // Try blockchain first
         const transactionPayload = CropInsuranceService.approveClaimTransaction(claimId);
         
         const response = await signAndSubmitTransaction({
@@ -192,52 +213,114 @@ export default function AdminDashboardPage() {
             maxGasAmount: 5000,
             gasUnitPrice: 100,
           },
+        }).catch((error) => {
+          if (error.message?.includes("User rejected")) {
+            throw new Error("Transaction cancelled by user");
+          }
+          throw error;
         });
 
-        toast({
-          title: "Claim Approved on Blockchain! 🎉",
-          description: `Transaction: ${response.hash.slice(0, 10)}... Farmer will receive ${CropInsuranceService.octasToApt(parseInt(policy.coverage_amount)).toFixed(2)} APT`,
-        });
-
-      } catch (blockchainError) {
-        console.error('Blockchain approval failed, using localStorage with APT transfer simulation:', blockchainError);
-        
-        // Fallback to localStorage - UPDATE EXISTING CLAIM STATUS
-        const allClaims = JSON.parse(localStorage.getItem('allClaims') || '[]');
-        const updatedClaims = allClaims.map((claim: any) => 
-          claim.id === claimId 
-            ? { ...claim, status: 2, processed_at: Math.floor(Date.now() / 1000).toString() } // 2 = approved
-            : claim
-        );
-        localStorage.setItem('allClaims', JSON.stringify(updatedClaims));
-        
-        // Find the claim to get farmer address
-        const targetClaim = claims.find(c => c.id === claimId);
-        if (!targetClaim) {
-          throw new Error('Claim not found');
+        if (!response?.hash) {
+          throw new Error("Transaction failed: No hash returned");
         }
 
-        // Also store in approved claims
-        const claimData = {
-          id: claimId,
-          status: 'approved',
-          approvedAt: Date.now(),
-          approvedBy: account.address.toString(),
-          amountPaid: policy.coverage_amount,
-          farmerAddress: targetClaim.farmer
-        };
+        // Only update UI and localStorage after successful blockchain transaction
+        const client = aptosClient();
+        try {
+          const transactionResult = await client.waitForTransaction({
+            transactionHash: response.hash
+          });
+            
+          if (!transactionResult?.success) {
+            throw new Error("Transaction failed on blockchain");
+          }
+
+          // Update UI after transaction confirmation
+          const updatedClaim = {
+            ...existingClaim,
+            status: 2, // 2 = CLAIM_APPROVED
+            processed_at: Math.floor(Date.now() / 1000).toString()
+          };
+
+          // Update UI state
+          setClaims(prevClaims => 
+            prevClaims.map(c => c.id === claimId ? updatedClaim : c)
+          );
+
+          // Update localStorage
+          const approvedClaim = {
+            id: claimId,
+            status: 'approved',
+            approvedAt: Date.now(),
+            approvedBy: account.address.toString(),
+            amountPaid: policy.coverage_amount,
+            farmerAddress: existingClaim.farmer,
+            transactionHash: response.hash
+          };
+
+          const approvedClaims = JSON.parse(localStorage.getItem('approvedClaims') || '[]');
+          approvedClaims.push(approvedClaim);
+          localStorage.setItem('approvedClaims', JSON.stringify(approvedClaims));
+
+          // Update allClaims in localStorage
+          const allClaims = JSON.parse(localStorage.getItem('allClaims') || '[]');
+          const updatedAllClaims = allClaims.map((c: any) => 
+            c.id === claimId ? updatedClaim : c
+          );
+          localStorage.setItem('allClaims', JSON.stringify(updatedAllClaims));
+
+          toast({
+            title: "Claim Approved Successfully! 🎉",
+            description: `Transaction: ${response.hash.slice(0, 10)}... Farmer will receive ${CropInsuranceService.octasToApt(parseInt(policy.coverage_amount)).toFixed(2)} APT`,
+          });
+          } catch (transactionError) {
+            console.error('Transaction failed:', transactionError);
+            throw new Error('Transaction failed to complete');
+          }
+        } catch (blockchainError) {
+        console.error('Blockchain approval failed, using localStorage with APT transfer simulation:', blockchainError);
         
-        const approvedClaims = JSON.parse(localStorage.getItem('approvedClaims') || '[]');
-        approvedClaims.push(claimData);
-        localStorage.setItem('approvedClaims', JSON.stringify(approvedClaims));
+        try {
+          // Fallback to localStorage - UPDATE EXISTING CLAIM STATUS
+          const allClaims = JSON.parse(localStorage.getItem('allClaims') || '[]');
+          const updatedClaims = allClaims.map((claim: any) => 
+            claim.id === claimId 
+              ? { ...claim, status: 2, processed_at: Math.floor(Date.now() / 1000).toString() } // 2 = approved
+              : claim
+          );
+          localStorage.setItem('allClaims', JSON.stringify(updatedClaims));
+          
+          // Find the claim to get farmer address
+          const targetClaim = claims.find(c => c.id === claimId);
+          if (!targetClaim) {
+            throw new Error('Claim not found');
+          }
 
-        // Simulate APT transfer to farmer (in a real scenario, this would be handled by the smart contract)
-        console.log(`💰 Simulating APT transfer: ${CropInsuranceService.octasToApt(parseInt(policy.coverage_amount)).toFixed(2)} APT to farmer ${targetClaim.farmer}`);
+          // Also store in approved claims
+          const claimData = {
+            id: claimId,
+            status: 'approved',
+            approvedAt: Date.now(),
+            approvedBy: account.address.toString(),
+            amountPaid: policy.coverage_amount,
+            farmerAddress: targetClaim.farmer
+          };
+          
+          const approvedClaims = JSON.parse(localStorage.getItem('approvedClaims') || '[]');
+          approvedClaims.push(claimData);
+          localStorage.setItem('approvedClaims', JSON.stringify(approvedClaims));
 
-        toast({
-          title: "Claim Approved Successfully! 🎉",
-          description: `${CropInsuranceService.octasToApt(parseInt(policy.coverage_amount)).toFixed(2)} APT has been approved for transfer to farmer ${CropInsuranceService.formatAddress(targetClaim.farmer)}`,
-        });
+          // Simulate APT transfer to farmer (in a real scenario, this would be handled by the smart contract)
+          console.log(`💰 Simulating APT transfer: ${CropInsuranceService.octasToApt(parseInt(policy.coverage_amount)).toFixed(2)} APT to farmer ${targetClaim.farmer}`);
+
+          toast({
+            title: "Claim Approved Successfully! 🎉",
+            description: `${CropInsuranceService.octasToApt(parseInt(policy.coverage_amount)).toFixed(2)} APT has been approved for transfer to farmer ${CropInsuranceService.formatAddress(targetClaim.farmer)}`,
+          });
+        } catch (localStorageError) {
+          console.error('Local storage fallback failed:', localStorageError);
+          throw localStorageError;
+        }
       }
       
       // Refresh claims data
@@ -299,46 +382,61 @@ export default function AdminDashboardPage() {
           },
         });
 
-        toast({
-          title: "Claim Rejected on Blockchain",
-          description: `Transaction: ${response.hash.slice(0, 10)}...`,
-        });
+        // Wait for transaction to complete
+        const client = aptosClient();
+        try {
+          await client.waitForTransaction({
+            transactionHash: response.hash
+          });
+          toast({
+            title: "Claim Rejected on Blockchain",
+            description: `Transaction: ${response.hash.slice(0, 10)}...`,
+          });
+        } catch (transactionError) {
+          console.error('Transaction failed:', transactionError);
+          throw new Error('Transaction failed to complete');
+        }
 
       } catch (blockchainError) {
         console.error('Blockchain rejection failed, using localStorage fallback:', blockchainError);
         
-        // Fallback to localStorage - UPDATE EXISTING CLAIM STATUS
-        const allClaims = JSON.parse(localStorage.getItem('allClaims') || '[]');
-        const updatedClaims = allClaims.map((claim: any) => 
-          claim.id === claimId 
-            ? { ...claim, status: 3, processed_at: Math.floor(Date.now() / 1000).toString() } // 3 = rejected
-            : claim
-        );
-        localStorage.setItem('allClaims', JSON.stringify(updatedClaims));
-        
-        // Find the claim to get farmer address
-        const targetClaim = claims.find(c => c.id === claimId);
-        if (!targetClaim) {
-          throw new Error('Claim not found');
+        try {
+          // Fallback to localStorage - UPDATE EXISTING CLAIM STATUS
+          const allClaims = JSON.parse(localStorage.getItem('allClaims') || '[]');
+          const updatedClaims = allClaims.map((claim: any) => 
+            claim.id === claimId 
+              ? { ...claim, status: 3, processed_at: Math.floor(Date.now() / 1000).toString() } // 3 = rejected
+              : claim
+          );
+          localStorage.setItem('allClaims', JSON.stringify(updatedClaims));
+          
+          // Find the claim to get farmer address
+          const targetClaim = claims.find(c => c.id === claimId);
+          if (!targetClaim) {
+            throw new Error('Claim not found');
+          }
+
+          // Also store in rejected claims
+          const claimData = {
+            id: claimId,
+            status: 'rejected',
+            rejectedAt: Date.now(),
+            rejectedBy: account.address.toString(),
+            farmerAddress: targetClaim.farmer
+          };
+          
+          const rejectedClaims = JSON.parse(localStorage.getItem('rejectedClaims') || '[]');
+          rejectedClaims.push(claimData);
+          localStorage.setItem('rejectedClaims', JSON.stringify(rejectedClaims));
+
+          toast({
+            title: "Claim Rejected Successfully",
+            description: `Claim has been rejected and farmer ${CropInsuranceService.formatAddress(targetClaim.farmer)} has been notified.`,
+          });
+        } catch (localStorageError) {
+          console.error('Local storage fallback failed:', localStorageError);
+          throw localStorageError;
         }
-
-        // Also store in rejected claims
-        const claimData = {
-          id: claimId,
-          status: 'rejected',
-          rejectedAt: Date.now(),
-          rejectedBy: account.address.toString(),
-          farmerAddress: targetClaim.farmer
-        };
-        
-        const rejectedClaims = JSON.parse(localStorage.getItem('rejectedClaims') || '[]');
-        rejectedClaims.push(claimData);
-        localStorage.setItem('rejectedClaims', JSON.stringify(rejectedClaims));
-
-        toast({
-          title: "Claim Rejected Successfully",
-          description: `Claim has been rejected and farmer ${CropInsuranceService.formatAddress(targetClaim.farmer)} has been notified.`,
-        });
       }
       
       // Refresh claims data
@@ -1034,11 +1132,11 @@ export default function AdminDashboardPage() {
                               </div>
                               <div>
                                 <p className="text-sm font-medium text-gray-900">Status</p>
-                                {isApproved ? (
+                                {claim.status === 2 || isApproved ? (
                                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                     Approved
                                   </span>
-                                ) : isRejected ? (
+                                ) : claim.status === 3 || isRejected ? (
                                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
                                     Rejected
                                   </span>
@@ -1055,14 +1153,32 @@ export default function AdminDashboardPage() {
                               <p className="text-sm text-gray-600 mt-1">{claim.reason}</p>
                             </div>
                             
-                            <div className="mt-4">
-                              <p className="text-sm font-medium text-gray-900">Coverage Amount</p>
-                              <p className="text-lg font-bold text-green-600">
-                                {CropInsuranceService.octasToApt(parseInt(relatedPolicy.coverage_amount)).toFixed(2)} APT
+                            <div className="mt-4 grid grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">Coverage Amount</p>
+                                <p className="text-lg font-bold text-green-600">
+                                  {CropInsuranceService.octasToApt(parseInt(relatedPolicy.coverage_amount)).toFixed(2)} APT
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">Premium Paid</p>
+                                <p className="text-lg font-bold text-blue-600">
+                                  {CropInsuranceService.octasToApt(parseInt(relatedPolicy.premium)).toFixed(2)} APT
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Premium Rate */}
+                            <div className="mt-2">
+                              <p className="text-sm text-gray-600">
+                                Premium Rate: {CropInsuranceService.calculatePremiumRate(
+                                  CropInsuranceService.octasToApt(parseInt(relatedPolicy.premium)),
+                                  CropInsuranceService.octasToApt(parseInt(relatedPolicy.coverage_amount))
+                                ).toFixed(1)}%
                               </p>
                             </div>
 
-                            {!isApproved && !isRejected && (
+                            {(claim.status === 1 && !isApproved && !isRejected) && (
                               <div className="mt-6 flex space-x-3">
                                 <Button
                                   onClick={() => handleApproveClaim(claim.id, relatedPolicy)}
@@ -1106,6 +1222,9 @@ export default function AdminDashboardPage() {
                               <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                                 <p className="text-sm text-green-800">
                                   ✅ This claim has been approved and {CropInsuranceService.octasToApt(parseInt(relatedPolicy.coverage_amount)).toFixed(2)} APT has been transferred to the farmer.
+                                </p>
+                                <p className="text-sm text-gray-600 mt-1">
+                                  Initial premium paid: {CropInsuranceService.octasToApt(parseInt(relatedPolicy.premium)).toFixed(2)} APT
                                 </p>
                               </div>
                             )}

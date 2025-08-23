@@ -29,11 +29,12 @@ export class TransactionHelper {
         await FaucetService.ensureFunds(account.address.toString());
       }
 
-      // Execute transaction with conservative gas settings
+      // Execute transaction with improved payload structure
       const response = await signAndSubmitTransaction({
         sender: account.address,
         data: {
           function: transactionPayload.function as `${string}::${string}::${string}`,
+          typeArguments: transactionPayload.typeArguments || [],
           functionArguments: transactionPayload.functionArguments,
         },
         options: {

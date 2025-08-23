@@ -1,0 +1,132 @@
+const handleApproveClaim = async (claimId: string, policy: Policy) => {
+    if (!connected || !account || !signAndSubmitTransaction) {
+      toast({
+        title: "Wallet Not Connected",
+        description: "Please connect your wallet first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Find the existing claim
+    const existingClaim = claims.find(c => c.id === claimId);
+    if (!existingClaim) {
+      toast({
+        title: "Error",
+        description: "Claim not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check if claim is already processed
+    if (existingClaim.status === 2 || existingClaim.status === 3) {
+      toast({
+        title: "Claim Already Processed",
+        description: `This claim has already been ${existingClaim.status === 2 ? 'approved' : 'rejected'}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to approve this claim? The coverage amount will be transferred to the farmer.")) {
+      return;
+    }
+
+    setLoading(true);
+    let transactionSuccessful = false;
+
+    try {
+      const transactionPayload = CropInsuranceService.approveClaimTransaction(claimId);
+      
+      const response = await signAndSubmitTransaction({
+        sender: account.address,
+        data: {
+          function: transactionPayload.function as `${string}::${string}::${string}`,
+          functionArguments: transactionPayload.functionArguments,
+        },
+        options: {
+          maxGasAmount: 5000,
+          gasUnitPrice: 100,
+        },
+      });
+
+      // Wait for transaction confirmation
+      const client = aptosClient();
+      console.log('Waiting for transaction confirmation...', response.hash);
+      
+      const result = await client.waitForTransactionWithResult(response.hash);
+      
+      if (!result.success) {
+        throw new Error("Transaction failed on chain");
+      }
+
+      transactionSuccessful = true;
+      console.log('Transaction confirmed successfully');
+      
+      // Only update UI after transaction is confirmed
+      const updatedClaim = {
+        ...existingClaim,
+        status: 2, // 2 = CLAIM_APPROVED
+        processed_at: Math.floor(Date.now() / 1000).toString()
+      };
+
+      // Update UI state
+      setClaims(prevClaims => 
+        prevClaims.map(c => c.id === claimId ? updatedClaim : c)
+      );
+
+      // Update localStorage only after successful transaction
+      const approvedClaim = {
+        id: claimId,
+        status: 'approved',
+        approvedAt: Date.now(),
+        approvedBy: account.address.toString(),
+        amountPaid: policy.coverage_amount,
+        farmerAddress: existingClaim.farmer,
+        transactionHash: response.hash
+      };
+
+      const approvedClaims = JSON.parse(localStorage.getItem('approvedClaims') || '[]');
+      approvedClaims.push(approvedClaim);
+      localStorage.setItem('approvedClaims', JSON.stringify(approvedClaims));
+
+      // Update allClaims in localStorage
+      const allClaims = JSON.parse(localStorage.getItem('allClaims') || '[]');
+      const updatedAllClaims = allClaims.map((c: any) => 
+        c.id === claimId ? updatedClaim : c
+      );
+      localStorage.setItem('allClaims', JSON.stringify(updatedAllClaims));
+
+      toast({
+        title: "Claim Approved Successfully! 🎉",
+        description: `Transaction confirmed! ${CropInsuranceService.octasToApt(parseInt(policy.coverage_amount)).toFixed(2)} APT transferred to farmer. Tx: ${response.hash.slice(0, 10)}...`,
+      });
+
+      // Refresh claims data
+      await fetchClaims();
+      
+    } catch (error: any) {
+      console.error('Error approving claim:', error);
+      
+      let errorTitle = "Approval Failed";
+      let errorMessage = "Failed to approve claim. Please try again.";
+      
+      if (error.message && error.message.includes("User has rejected the request")) {
+        errorTitle = "Transaction Cancelled";
+        errorMessage = "You cancelled the transaction in your wallet.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      if (!transactionSuccessful) {
+        toast({
+          title: errorTitle,
+          description: errorMessage,
+          variant: "destructive"
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };

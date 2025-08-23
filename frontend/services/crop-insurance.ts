@@ -56,13 +56,33 @@ export class CropInsuranceService {
 
   // Buy a policy from template (returns transaction payload) - Farmers
   static buyPolicyTransaction(params: BuyPolicyParams) {
-    return {
-      function: `${MODULE_ADDRESS}::${MODULE_NAME}::buy_policy`,
-      functionArguments: [
-        ADMIN_ADDRESS, // admin_addr - where premium goes
-        parseInt(params.template_id),
-      ],
-    };
+    // Ensure template ID is within uint64 range for Move
+    let templateId: number;
+    try {
+      templateId = typeof params.template_id === 'string' ? 
+        parseInt(params.template_id) : 
+        Number(params.template_id);
+
+      // Check if number is within uint64 range (0 to 18446744073709551615)
+      if (isNaN(templateId) || templateId < 0 || templateId > 18446744073709551615n) {
+        throw new Error('Template ID out of range');
+      }
+
+      // Convert to string to preserve exact value
+      const templateIdStr = templateId.toString();
+
+      return {
+        function: `${MODULE_ADDRESS}::${MODULE_NAME}::buy_policy`,
+        typeArguments: [],
+        functionArguments: [
+          ADMIN_ADDRESS, // admin_addr - where premium goes
+          templateIdStr, // Pass as string to preserve exact value
+        ],
+      };
+    } catch (error) {
+      console.error('Template ID processing error:', error);
+      throw new Error('Invalid template ID: Must be a positive number within uint64 range');
+    }
   }
 
   // Submit a claim (returns transaction payload)
@@ -79,17 +99,38 @@ export class CropInsuranceService {
 
   // Approve a claim (returns transaction payload)
   static approveClaimTransaction(claimId: string) {
-    return {
-      function: `${MODULE_ADDRESS}::${MODULE_NAME}::approve_claim`,
-      functionArguments: [parseInt(claimId)],
-    };
+    try {
+      // Convert claimId to BigInt and validate range
+      const numericClaimId = BigInt(claimId);
+      if (numericClaimId < 0n || numericClaimId > 18446744073709551615n) {
+        throw new Error('Claim ID is out of valid range for uint64');
+      }
+
+      // Convert back to string to preserve exact value
+      const claimIdStr = numericClaimId.toString();
+
+      return {
+        function: `${MODULE_ADDRESS}::${MODULE_NAME}::approve_claim`,
+        typeArguments: [],
+        functionArguments: [
+          claimIdStr // Just need the claim ID, admin check is done in contract
+        ],
+      };
+    } catch (error) {
+      console.error('Error processing claim ID for approval:', error);
+      throw new Error('Invalid claim ID: Must be a positive number within uint64 range');
+    }
   }
 
   // Reject a claim (returns transaction payload)
   static rejectClaimTransaction(claimId: string) {
     return {
       function: `${MODULE_ADDRESS}::${MODULE_NAME}::reject_claim`,
-      functionArguments: [parseInt(claimId)],
+      functionArguments: [
+        MODULE_ADDRESS,  // admin_addr
+        parseInt(claimId),
+        "Rejected by admin" // rejection message
+      ],
     };
   }
 
@@ -210,13 +251,15 @@ export class CropInsuranceService {
   static async getAllPolicies(): Promise<Policy[]> {
     try {
       // Try blockchain first
-      const policies = await aptosClient().view({
+      const response = await aptosClient().view({
         payload: {
-          function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_all_policies`,
+          function: `${MODULE_ADDRESS}::${MODULE_NAME}::get_policies`, // Updated function name
           functionArguments: [MODULE_ADDRESS],
         },
       });
-      return policies[0] as Policy[];
+      
+      console.log('Blockchain policies response:', response);
+      return response[0] as Policy[];
     } catch (error) {
       console.error('Error fetching all policies from blockchain, using localStorage fallback:', error);
       
