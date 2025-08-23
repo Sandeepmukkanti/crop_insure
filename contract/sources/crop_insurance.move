@@ -442,6 +442,13 @@ module crop_insurance1::crop_insurance_petra_admin_v2 {
             vector::length(&pool.claims)
         )
     }
+    
+    #[view]
+    public fun get_policies(admin_addr: address): vector<Policy> acquires InsurancePool {
+        let deployer_addr = @crop_insurance1;
+        let pool = borrow_global<InsurancePool>(deployer_addr);
+        pool.policies
+    }
 
     // Helper functions
     fun find_template_index(templates: &vector<PolicyTemplate>, template_id: u64): u64 {
